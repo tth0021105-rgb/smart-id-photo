@@ -262,7 +262,7 @@ function App() {
             </div>
 
             {config.sizePreset === 'custom' && (
-              <div className="settings-group custom-size-inputs mb-5 bg-slate-800/30 p-4 rounded-lg border border-slate-700/50">
+              <div className="settings-group mb-5 bg-slate-800/30 p-4 rounded-lg border border-slate-700/50">
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="settings-label text-xs text-slate-400 block mb-1.5">宽度 (宽)</label>

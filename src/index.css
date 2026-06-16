@@ -211,14 +211,14 @@ header p {
   background-color: var(--bg-base);
 }
 
-.custom-size-inputs {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
+/* Hide number input spinners for custom inputs */
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
 }
-
-.custom-size-inputs span {
-  color: var(--text-secondary);
+input[type=number] {
+  -moz-appearance: textfield;
 }
 
 /* Batch List */
