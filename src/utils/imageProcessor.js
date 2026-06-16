@@ -50,28 +50,70 @@ export const processImage = async (file, config) => {
   });
 };
 
+const aiCache = new Map();
+
+// Helper to downscale large images specifically for face detection speedup
+const getDetectionImage = (img, maxDim = 800) => {
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  if (scale === 1) return { detectionCanvas: img, scale: 1 };
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width * scale;
+  canvas.height = img.height * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return { detectionCanvas: canvas, scale };
+};
+
 const cropAndProcess = async (originalImg, originalFile, config) => {
   await loadModels();
+
+  // Create a robust unique key for caching heavy AI operations
+  const fileKey = `${originalFile.name}_${originalFile.size}_${originalFile.lastModified}`;
+  if (!aiCache.has(fileKey)) {
+    aiCache.set(fileKey, {});
+  }
+  const cacheEntry = aiCache.get(fileKey);
 
   let imgToCrop = originalImg;
 
   // 1. Background Removal
   if (config.bgColor !== 'transparent') {
-    // If we need a specific background, we first remove the original background
-    try {
-      const bgRemovedBlob = await removeBackground(originalFile);
-      imgToCrop = await blobToImage(bgRemovedBlob);
-    } catch (e) {
-      console.warn("Background removal failed or was skipped:", e);
-      // Fallback to original image if it fails
+    if (cacheEntry.bgRemovedImg) {
+      imgToCrop = cacheEntry.bgRemovedImg;
+    } else {
+      try {
+        // Use the 'small' model which is up to 3x faster
+        const bgRemovedBlob = await removeBackground(originalFile, {
+          model: 'small'
+        });
+        imgToCrop = await blobToImage(bgRemovedBlob);
+        cacheEntry.bgRemovedImg = imgToCrop;
+      } catch (e) {
+        console.warn("Background removal failed:", e);
+      }
     }
   }
 
   // 2. Face Detection
-  const detection = await faceapi.detectSingleFace(imgToCrop, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 })).withFaceLandmarks();
+  let detection = cacheEntry.detection;
   
   if (!detection) {
-    throw new Error("No face detected in the image. Please try another photo with a clearer face.");
+    // For much faster face detection on high-res images, we downscale first
+    const { detectionCanvas } = getDetectionImage(imgToCrop, 800);
+    
+    const rawDetection = await faceapi.detectSingleFace(
+      detectionCanvas, 
+      new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 })
+    ).withFaceLandmarks();
+    
+    if (!rawDetection) {
+      throw new Error("No face detected in the image. Please try another photo with a clearer face.");
+    }
+
+    // Scale the results back up to the original high-res image dimensions
+    detection = faceapi.resizeResults(rawDetection, { width: imgToCrop.width, height: imgToCrop.height });
+    cacheEntry.detection = detection;
   }
 
   const box = detection.detection.box;
