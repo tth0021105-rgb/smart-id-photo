@@ -262,42 +262,52 @@ function App() {
             </div>
 
             {config.sizePreset === 'custom' && (
-              <div className="settings-group custom-size-inputs mb-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex-1">
-                    <label className="settings-label text-xs text-slate-400 block mb-1">宽度 (cm)</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5" 
-                      value={config.customWidthCm}
-                      onChange={(e) => handleConfigChange('customWidthCm', parseFloat(e.target.value))}
-                    />
+              <div className="settings-group custom-size-inputs mb-5 bg-slate-800/30 p-4 rounded-lg border border-slate-700/50">
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="settings-label text-xs text-slate-400 block mb-1.5">宽度 (宽)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        step="0.1"
+                        className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5 pl-3 pr-8" 
+                        value={config.customWidthCm}
+                        onChange={(e) => handleConfigChange('customWidthCm', parseFloat(e.target.value))}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">cm</span>
+                    </div>
                   </div>
-                  <span className="text-slate-500 mt-5">x</span>
-                  <div className="flex-1">
-                    <label className="settings-label text-xs text-slate-400 block mb-1">高度 (cm)</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5" 
-                      value={config.customHeightCm}
-                      onChange={(e) => handleConfigChange('customHeightCm', parseFloat(e.target.value))}
-                    />
+                  <div>
+                    <label className="settings-label text-xs text-slate-400 block mb-1.5">高度 (高)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        step="0.1"
+                        className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5 pl-3 pr-8" 
+                        value={config.customHeightCm}
+                        onChange={(e) => handleConfigChange('customHeightCm', parseFloat(e.target.value))}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">cm</span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="settings-label text-xs text-slate-400 block mb-1">打印分辨率 (DPI)</label>
-                    <input 
-                      type="number" 
-                      className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5" 
-                      value={config.dpi}
-                      onChange={(e) => handleConfigChange('dpi', parseInt(e.target.value))}
-                    />
+                
+                <div className="flex items-center justify-between border-t border-slate-700/50 pt-4">
+                  <div className="w-1/2 pr-4 border-r border-slate-700/50">
+                    <label className="settings-label text-xs text-slate-400 block mb-1.5">打印分辨率</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        className="text-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5 pl-3 pr-9" 
+                        value={config.dpi}
+                        onChange={(e) => handleConfigChange('dpi', parseInt(e.target.value))}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">DPI</span>
+                    </div>
                   </div>
-                  <div className="flex-1 mt-5 text-xs text-slate-500 text-right">
-                    转换像素: <span className="text-emerald-400 font-mono">{config.width} x {config.height} px</span>
+                  <div className="w-1/2 pl-4 flex flex-col justify-center">
+                    <span className="text-xs text-slate-400 mb-1">最终输出像素</span>
+                    <span className="text-emerald-400 font-mono text-sm">{config.width} × {config.height} px</span>
                   </div>
                 </div>
               </div>
