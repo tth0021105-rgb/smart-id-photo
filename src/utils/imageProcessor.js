@@ -79,16 +79,16 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
 
   // 1. Background Removal
   if (config.bgColor !== 'keep' || config.sizePreset === 'cutoutOnly') {
-    if (cacheEntry.bgRemovedImg) {
+    if (cacheEntry.bgRemovedImg && cacheEntry.cutoutQuality === config.cutoutQuality) {
       imgToCrop = cacheEntry.bgRemovedImg;
     } else {
       try {
-        // Use the 'small' model which is up to 3x faster
         const bgRemovedBlob = await removeBackground(originalFile, {
-          model: 'small'
+          model: config.cutoutQuality || 'medium'
         });
         imgToCrop = await blobToImage(bgRemovedBlob);
         cacheEntry.bgRemovedImg = imgToCrop;
+        cacheEntry.cutoutQuality = config.cutoutQuality || 'medium';
       } catch (e) {
         console.warn("Background removal failed:", e);
       }

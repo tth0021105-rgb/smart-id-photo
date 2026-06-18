@@ -29,6 +29,7 @@ function App() {
     customHeightCm: 3.5,
     dpi: 300,
     bgColor: 'keep',
+    cutoutQuality: 'medium',
     beautyFilter: false,
     watermark: '',
     printLayout: false,
@@ -325,12 +326,24 @@ function App() {
             )}
           </div>
 
-          <div className="glass-panel">
-            <h3 className="flex items-center gap-2 text-lg font-semibold mb-6 border-b border-slate-700 pb-3">
-              <Sparkles size={20} className="text-purple-400" /> 画面处理
-            </h3>
+            <div className="glass-panel">
+              <h3 className="flex items-center gap-2 text-lg font-semibold mb-6 border-b border-slate-700 pb-3">
+                <Sparkles size={20} className="text-purple-400" /> 画面处理
+              </h3>
+              
+              <div className="settings-group mb-5">
+                <label className="settings-label text-sm text-slate-300 font-medium mb-2 block">抠图精度模型</label>
+                <select 
+                  className="select-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5 text-sm"
+                  value={config.cutoutQuality}
+                  onChange={(e) => handleConfigChange('cutoutQuality', e.target.value)}
+                >
+                  <option value="medium" className="bg-slate-800">高精度 (边缘更细腻，建议使用)</option>
+                  <option value="small" className="bg-slate-800">极速版 (处理更快，适合粗略抠图)</option>
+                </select>
+              </div>
 
-            <div className="settings-group mb-5">
+              <div className="settings-group mb-5">
               <label className="settings-label text-sm text-slate-300 font-medium mb-2 flex items-center gap-2">
                 <Palette size={16} /> 背景替换
               </label>
