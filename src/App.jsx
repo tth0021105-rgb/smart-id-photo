@@ -7,11 +7,13 @@ import { saveAs } from 'file-saver';
 const SIZES = {
   '1inch': { width: 295, height: 413, label: '1寸 (295x413)' },
   '2inch': { width: 413, height: 579, label: '2寸 (413x579)' },
-  'custom': { width: 300, height: 400, label: '自定义' }
+  'custom': { width: 300, height: 400, label: '自定义' },
+  'cutoutOnly': { width: 'auto', height: 'auto', label: '仅抠图 (保持原尺寸)' }
 };
 
 const BG_COLORS = [
-  { value: 'transparent', label: '保持原底色 (或透明)', color: 'transparent' },
+  { value: 'keep', label: '保持原底色', color: 'transparent' },
+  { value: 'transparent', label: '透明底 (抠图)', color: 'rgba(0,0,0,0.1)' },
   { value: '#ffffff', label: '白底', color: '#ffffff' },
   { value: '#438edb', label: '蓝底', color: '#438edb' },
   { value: '#ff0000', label: '红底', color: '#ff0000' }
@@ -26,7 +28,7 @@ function App() {
     customWidthCm: 2.5,
     customHeightCm: 3.5,
     dpi: 300,
-    bgColor: 'transparent',
+    bgColor: 'keep',
     beautyFilter: false,
     watermark: '',
     printLayout: false,
@@ -48,7 +50,7 @@ function App() {
     setConfig(prev => {
       const newConfig = { ...prev, [key]: value };
       
-      if (key === 'sizePreset' && value !== 'custom') {
+      if (key === 'sizePreset' && value !== 'custom' && value !== 'cutoutOnly') {
         newConfig.width = SIZES[value].width;
         newConfig.height = SIZES[value].height;
       }
@@ -312,6 +314,15 @@ function App() {
                 </div>
               </div>
             )}
+            
+            {config.sizePreset === 'cutoutOnly' && (
+              <div className="settings-group mb-5 bg-blue-900/20 p-4 rounded-lg border border-blue-700/50">
+                <p className="text-sm text-blue-300">
+                  当前处于<strong>仅抠图</strong>模式。<br/>
+                  将跳过人脸识别和裁剪，仅移除背景并保持原图尺寸。如果选择透明底，建议导出格式设为 PNG。
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="glass-panel">
@@ -331,7 +342,7 @@ function App() {
                     onClick={() => handleConfigChange('bgColor', bg.value)}
                     className={`flex items-center gap-2 p-2 rounded border transition-all ${config.bgColor === bg.value ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/30'}`}
                   >
-                    <div className="w-5 h-5 rounded-full border border-slate-600 shadow-inner" style={{ background: bg.value === 'transparent' ? 'repeating-conic-gradient(#333 0% 25%, transparent 0% 50%) 50% / 10px 10px' : bg.color }}></div>
+                    <div className="w-5 h-5 rounded-full border border-slate-600 shadow-inner" style={{ background: bg.value === 'keep' || bg.value === 'transparent' ? 'repeating-conic-gradient(#333 0% 25%, transparent 0% 50%) 50% / 10px 10px' : bg.color }}></div>
                     <span className="text-sm">{bg.label}</span>
                   </button>
                 ))}
@@ -365,6 +376,7 @@ function App() {
             </div>
           </div>
 
+          {config.sizePreset !== 'cutoutOnly' && (
             <div className="glass-panel mt-4">
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-6 border-b border-slate-700 pb-3">
                 <Settings size={20} className="text-amber-400" /> 高级裁剪微调
@@ -402,6 +414,7 @@ function App() {
                 <p className="text-xs text-slate-500 mt-1">值越大，头顶上方的空间越多（适合头发蓬松的人）。</p>
               </div>
             </div>
+          )}
 
             <div className="glass-panel mt-4">
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-6 border-b border-slate-700 pb-3">

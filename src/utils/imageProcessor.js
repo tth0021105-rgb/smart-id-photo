@@ -78,7 +78,7 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
   let imgToCrop = originalImg;
 
   // 1. Background Removal
-  if (config.bgColor !== 'transparent') {
+  if (config.bgColor !== 'keep' || config.sizePreset === 'cutoutOnly') {
     if (cacheEntry.bgRemovedImg) {
       imgToCrop = cacheEntry.bgRemovedImg;
     } else {
@@ -93,6 +93,46 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
         console.warn("Background removal failed:", e);
       }
     }
+  }
+
+  // If "仅抠图" mode is selected, skip face detection and crop
+  if (config.sizePreset === 'cutoutOnly') {
+    const canvas = document.createElement('canvas');
+    canvas.width = originalImg.width;
+    canvas.height = originalImg.height;
+    const ctx = canvas.getContext('2d');
+    
+    // Apply Background Color
+    if (config.bgColor !== 'keep' && config.bgColor !== 'transparent') {
+      ctx.fillStyle = config.bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Apply Beauty Filter
+    if (config.beautyFilter) {
+      ctx.filter = 'brightness(1.05) contrast(1.05) saturate(1.1) blur(0.5px)';
+    }
+    
+    ctx.drawImage(imgToCrop, 0, 0);
+    
+    // Apply Watermark
+    if (config.watermark) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = `${Math.max(12, canvas.width * 0.05)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(-Math.PI / 4);
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillText(config.watermark, 0, i * (canvas.height * 0.3));
+      }
+      ctx.resetTransform();
+    }
+    
+    const format = (config.bgColor === 'transparent' || config.bgColor === 'keep') && config.format !== 'jpg' ? 'png' : config.format;
+    return canvasToBlob(canvas, format, config.quality);
   }
 
   // 2. Face Detection
@@ -165,7 +205,7 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
   const ctx = canvas.getContext('2d');
   
   // Apply Background Color
-  if (config.bgColor !== 'transparent') {
+  if (config.bgColor !== 'keep' && config.bgColor !== 'transparent') {
     ctx.fillStyle = config.bgColor;
     ctx.fillRect(0, 0, targetWidth, targetHeight);
   } else {
