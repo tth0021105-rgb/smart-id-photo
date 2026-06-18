@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Settings, Image as ImageIcon, Download, CheckCircle, AlertCircle, Trash2, SlidersHorizontal, Palette, Printer, Sparkles, Type } from 'lucide-react';
+import { Upload, Settings, Image as ImageIcon, Download, CheckCircle, AlertCircle, Trash2, SlidersHorizontal, Palette, Printer, Sparkles, Type, Eye, X } from 'lucide-react';
 import { loadModels, processImage } from './utils/imageProcessor';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -40,6 +40,7 @@ function App() {
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -216,12 +217,27 @@ function App() {
                       </div>
                       
                       {img.status === 'success' && (
-                        <div className="shrink-0 relative group">
-                          <img src={img.result.url} alt="result" className="w-16 h-16 rounded object-cover border-2 border-emerald-500 shadow-lg shadow-emerald-500/20" />
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center cursor-pointer"
-                               onClick={() => saveAs(img.result.blob, img.result.fileName)}>
-                            <Download size={16} className="text-white" />
-                          </div>
+                        <div className="shrink-0 flex gap-2">
+                          <button 
+                            className="w-16 h-16 relative group rounded overflow-hidden border-2 border-emerald-500 hover:border-blue-400 transition-colors"
+                            style={{ backgroundImage: 'repeating-conic-gradient(#333 0% 25%, #222 0% 50%)', backgroundSize: '10px 10px' }}
+                            onClick={() => setPreviewImage(img)}
+                            title="点击放大预览"
+                          >
+                            <img src={img.result.url} alt="result" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye size={18} className="text-white" />
+                            </div>
+                          </button>
+                          
+                          <button 
+                            className="w-16 h-16 rounded bg-slate-800 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/50 flex flex-col items-center justify-center gap-1 transition-colors"
+                            onClick={() => saveAs(img.result.blob, img.result.fileName)}
+                            title="直接下载"
+                          >
+                            <Download size={18} />
+                            <span className="text-[10px]">下载</span>
+                          </button>
                         </div>
                       )}
                       
@@ -506,6 +522,40 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setPreviewImage(null)}>
+          <div className="relative bg-slate-900 rounded-2xl shadow-2xl overflow-hidden max-w-4xl w-full flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-900/80">
+              <h3 className="text-xl font-semibold text-white truncate">{previewImage.file.name} - 效果预览</h3>
+              <button className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition" onClick={() => setPreviewImage(null)}>
+                <X size={20} className="text-slate-300" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950" style={{ minHeight: '50vh' }}>
+              <div className="relative rounded shadow-2xl" style={{ backgroundImage: 'repeating-conic-gradient(#333 0% 25%, #222 0% 50%)', backgroundSize: '20px 20px', display: 'inline-block' }}>
+                <img src={previewImage.result.url} alt="Preview" className="max-w-full max-h-[65vh] object-contain block" />
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-slate-800 bg-slate-900 flex justify-end gap-3">
+              <button className="btn btn-secondary px-6" onClick={() => setPreviewImage(null)}>关闭</button>
+              <button 
+                className="btn btn-primary px-6 flex items-center gap-2" 
+                onClick={() => {
+                  saveAs(previewImage.result.blob, previewImage.result.fileName);
+                  setPreviewImage(null);
+                }}
+              >
+                <Download size={18} /> 下载这张图片
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
