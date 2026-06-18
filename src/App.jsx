@@ -12,7 +12,6 @@ const SIZES = {
 };
 
 const BG_COLORS = [
-  { value: 'keep', label: '保持原底色', color: 'transparent' },
   { value: 'transparent', label: '透明底 (抠图)', color: 'rgba(0,0,0,0.1)' },
   { value: '#ffffff', label: '白底', color: '#ffffff' },
   { value: '#438edb', label: '蓝底', color: '#438edb' },
@@ -22,19 +21,19 @@ const BG_COLORS = [
 function App() {
   const [images, setImages] = useState([]);
   const [config, setConfig] = useState({
-    sizePreset: '1inch',
-    width: SIZES['1inch'].width,
-    height: SIZES['1inch'].height,
+    sizePreset: 'cutoutOnly',
+    width: SIZES['cutoutOnly'].width,
+    height: SIZES['cutoutOnly'].height,
     customWidthCm: 2.5,
     customHeightCm: 3.5,
     dpi: 300,
-    bgColor: 'keep',
+    bgColor: 'transparent',
     cutoutQuality: 'medium',
     edgeShift: 0,
     beautyFilter: false,
     watermark: '',
     printLayout: false,
-    format: 'jpg',
+    format: 'png',
     quality: 90
   });
   
@@ -372,7 +371,7 @@ function App() {
                     onClick={() => handleConfigChange('bgColor', bg.value)}
                     className={`flex items-center gap-2 p-2 rounded border transition-all ${config.bgColor === bg.value ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/30'}`}
                   >
-                    <div className="w-5 h-5 rounded-full border border-slate-600 shadow-inner" style={{ background: bg.value === 'keep' || bg.value === 'transparent' ? 'repeating-conic-gradient(#333 0% 25%, transparent 0% 50%) 50% / 10px 10px' : bg.color }}></div>
+                    <div className="w-5 h-5 rounded-full border border-slate-600 shadow-inner" style={{ background: bg.value === 'transparent' ? 'repeating-conic-gradient(#333 0% 25%, transparent 0% 50%) 50% / 10px 10px' : bg.color }}></div>
                     <span className="text-sm">{bg.label}</span>
                   </button>
                 ))}
@@ -484,15 +483,17 @@ function App() {
               <label className="settings-label text-sm text-slate-300 font-medium mb-2 block">图片格式</label>
               <select 
                 className="select-input w-full bg-slate-900/50 border border-slate-700 rounded-lg p-2.5 text-sm"
-                value={config.format}
+                value={config.bgColor === 'transparent' ? 'png' : config.format}
                 onChange={(e) => handleConfigChange('format', e.target.value)}
+                disabled={config.bgColor === 'transparent'}
               >
                 <option value="jpg" className="bg-slate-800">JPG (文件小，可调画质)</option>
                 <option value="png" className="bg-slate-800">PNG (无损画质，适合打印)</option>
               </select>
+              {config.bgColor === 'transparent' && <p className="text-xs text-blue-400 mt-1">透明背景必须使用 PNG 格式以保留透明度。</p>}
             </div>
 
-            {config.format === 'jpg' && (
+            {(config.format === 'jpg' && config.bgColor !== 'transparent') && (
               <div className="settings-group">
                 <label className="settings-label text-sm flex justify-between mb-2">
                   <span>导出画质</span>

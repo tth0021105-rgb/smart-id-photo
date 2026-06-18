@@ -185,8 +185,8 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
       ctx.resetTransform();
     }
     
-    const format = (config.bgColor === 'transparent' || config.bgColor === 'keep') && config.format !== 'jpg' ? 'png' : config.format;
-    return canvasToBlob(canvas, format, config.quality);
+    const exportFormat = config.bgColor === 'transparent' ? 'png' : config.format;
+    return canvasToBlob(canvas, exportFormat, config.quality);
   }
 
   // 2. Face Detection
@@ -303,13 +303,15 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
     ctx.resetTransform();
   }
 
+  const exportFormat = config.bgColor === 'transparent' ? 'png' : config.format;
+
   // 5. Print Layout (4x6 tiling)
   if (config.printLayout) {
-    return generatePrintLayout(canvas, targetWidth, targetHeight, config.format, config.quality);
+    return generatePrintLayout(canvas, targetWidth, targetHeight, exportFormat, config.quality);
   }
 
   // 6. Export Single Blob
-  return canvasToBlob(canvas, config.format, config.quality);
+  return canvasToBlob(canvas, exportFormat, config.quality);
 };
 
 const generatePrintLayout = async (croppedCanvas, singleWidth, singleHeight, format, quality) => {
