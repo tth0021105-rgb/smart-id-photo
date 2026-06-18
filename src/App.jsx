@@ -30,6 +30,7 @@ function App() {
     dpi: 300,
     bgColor: 'keep',
     cutoutQuality: 'medium',
+    edgeShift: 0,
     beautyFilter: false,
     watermark: '',
     printLayout: false,
@@ -373,6 +374,22 @@ function App() {
                 <input type="checkbox" className="sr-only peer" checked={config.beautyFilter} onChange={(e) => handleConfigChange('beautyFilter', e.target.checked)} />
                 <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-500"></div>
               </label>
+            </div>
+
+            <div className="settings-group mb-5">
+              <label className="settings-label text-sm flex justify-between mb-2">
+                <span>边缘收缩 (去白边/去杂色)</span>
+                <span className="text-blue-400 font-mono">{config.edgeShift || 0} px</span>
+              </label>
+              <input 
+                type="range" 
+                min="0" 
+                max="20" 
+                value={config.edgeShift || 0} 
+                className="w-full accent-blue-500"
+                onChange={(e) => handleConfigChange('edgeShift', parseInt(e.target.value))}
+              />
+              <p className="text-xs text-slate-500 mt-1">如果抠图后人物周围有发白发亮的边缘，可适当调大此值以收缩边缘。</p>
             </div>
 
             <div className="settings-group mb-2">

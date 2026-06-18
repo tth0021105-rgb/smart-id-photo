@@ -65,6 +65,56 @@ const getDetectionImage = (img, maxDim = 800) => {
   return { detectionCanvas: canvas, scale };
 };
 
+const applyEdgeShift = (img, shiftAmount) => {
+  if (shiftAmount <= 0) return img;
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  for (let pass = 0; pass < shiftAmount; pass++) {
+    const originalAlpha = new Uint8ClampedArray(width * height);
+    for (let i = 0; i < data.length; i += 4) {
+      originalAlpha[i / 4] = data[i + 3];
+    }
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        if (data[idx + 3] === 0) continue; 
+        
+        let minAlpha = 255;
+        const neighbors = [
+          [-1, 0], [1, 0], [0, -1], [0, 1]
+        ];
+        
+        for (const [dx, dy] of neighbors) {
+          const ny = y + dy;
+          const nx = x + dx;
+          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+            const nAlpha = originalAlpha[ny * width + nx];
+            if (nAlpha < minAlpha) minAlpha = nAlpha;
+          } else {
+            minAlpha = 0;
+          }
+        }
+        
+        data[idx + 3] = (data[idx + 3] + minAlpha) / 2;
+      }
+    }
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+};
+
 const cropAndProcess = async (originalImg, originalFile, config) => {
   await loadModels();
 
@@ -92,6 +142,10 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
       } catch (e) {
         console.warn("Background removal failed:", e);
       }
+    }
+    
+    if (cacheEntry.bgRemovedImg) {
+      imgToCrop = applyEdgeShift(cacheEntry.bgRemovedImg, config.edgeShift || 0);
     }
   }
 
