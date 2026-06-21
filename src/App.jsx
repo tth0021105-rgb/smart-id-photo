@@ -393,8 +393,8 @@ function App() {
 
             <div className="settings-group mb-5">
               <label className="settings-label text-sm flex justify-between mb-2">
-                <span>边缘收缩 (去白边/去杂色)</span>
-                <span className="text-blue-400 font-mono">{config.edgeShift || 0} px</span>
+                <span>边缘净化 (去白边)</span>
+                <span className="text-blue-400 font-mono">{config.edgeShift || 0}</span>
               </label>
               <input 
                 type="range" 
@@ -404,7 +404,7 @@ function App() {
                 className="w-full accent-blue-500"
                 onChange={(e) => handleConfigChange('edgeShift', parseInt(e.target.value))}
               />
-              <p className="text-xs text-slate-500 mt-1">如果抠图后人物周围有发白发亮的边缘，可适当调大此值以收缩边缘。</p>
+              <p className="text-xs text-slate-500 mt-1">对 AI 遮罩做精细化处理，清除发丝外围的半透明白雾，颜色始终来自原图不会失真。</p>
             </div>
 
             <div className="settings-group mb-2">

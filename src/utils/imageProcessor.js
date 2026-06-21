@@ -65,52 +65,78 @@ const getDetectionImage = (img, maxDim = 800) => {
   return { detectionCanvas: canvas, scale };
 };
 
-const applyEdgeShift = (img, shiftAmount) => {
-  if (shiftAmount <= 0) return img;
-  
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  const width = canvas.width;
-  const height = canvas.height;
-  
-  for (let pass = 0; pass < shiftAmount; pass++) {
-    const originalAlpha = new Uint8ClampedArray(width * height);
-    for (let i = 0; i < data.length; i += 4) {
-      originalAlpha[i / 4] = data[i + 3];
+// --- Mask-based hair refinement pipeline ---
+
+// Fast box blur on a single-channel Uint8 array (used as an approximation of gaussian blur)
+const boxBlurAlpha = (alpha, width, height, radius) => {
+  if (radius <= 0) return alpha;
+  const out = new Uint8Array(width * height);
+  // Horizontal pass
+  const tmp = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    let sum = 0;
+    let count = 0;
+    // Init window
+    for (let x = 0; x <= radius && x < width; x++) {
+      sum += alpha[y * width + x];
+      count++;
     }
-    
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = (y * width + x) * 4;
-        if (data[idx + 3] === 0) continue; 
-        
-        let minAlpha = 255;
-        const neighbors = [
-          [-1, 0], [1, 0], [0, -1], [0, 1]
-        ];
-        
-        for (const [dx, dy] of neighbors) {
-          const ny = y + dy;
-          const nx = x + dx;
-          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-            const nAlpha = originalAlpha[ny * width + nx];
-            if (nAlpha < minAlpha) minAlpha = nAlpha;
-          } else {
-            minAlpha = 0;
-          }
-        }
-        
-        data[idx + 3] = (data[idx + 3] + minAlpha) / 2;
-      }
+    for (let x = 0; x < width; x++) {
+      tmp[y * width + x] = (sum / count) | 0;
+      // Expand right
+      const nx = x + radius + 1;
+      if (nx < width) { sum += alpha[y * width + nx]; count++; }
+      // Shrink left
+      const ox = x - radius;
+      if (ox >= 0) { sum -= alpha[y * width + ox]; count--; }
     }
   }
-  
+  // Vertical pass
+  for (let x = 0; x < width; x++) {
+    let sum = 0;
+    let count = 0;
+    for (let y = 0; y <= radius && y < height; y++) {
+      sum += tmp[y * width + x];
+      count++;
+    }
+    for (let y = 0; y < height; y++) {
+      out[y * width + x] = (sum / count) | 0;
+      const ny = y + radius + 1;
+      if (ny < height) { sum += tmp[ny * width + x]; count++; }
+      const oy = y - radius;
+      if (oy >= 0) { sum -= tmp[oy * width + x]; count--; }
+    }
+  }
+  return out;
+};
+
+// Apply levels adjustment to alpha: blackPoint clips low values, gamma controls curve
+const applyAlphaLevels = (alpha, width, height, blackPoint, gamma) => {
+  const out = new Uint8Array(width * height);
+  for (let i = 0; i < alpha.length; i++) {
+    let v = alpha[i];
+    if (v <= blackPoint) {
+      out[i] = 0;
+    } else {
+      let normalized = (v - blackPoint) / (255 - blackPoint);
+      out[i] = Math.min(255, Math.pow(normalized, gamma) * 255) | 0;
+    }
+  }
+  return out;
+};
+
+// Composite: take RGB from original image, alpha from refined mask
+const compositeWithMask = (originalImg, refinedAlpha) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = originalImg.width;
+  canvas.height = originalImg.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(originalImg, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < refinedAlpha.length; i++) {
+    data[i * 4 + 3] = refinedAlpha[i];
+  }
   ctx.putImageData(imageData, 0, 0);
   return canvas;
 };
@@ -127,25 +153,96 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
 
   let imgToCrop = originalImg;
 
-  // 1. Background Removal
+  // 1. Background Removal — mask-based pipeline
   if (config.bgColor !== 'keep' || config.sizePreset === 'cutoutOnly') {
-    if (cacheEntry.bgRemovedImg && cacheEntry.cutoutQuality === config.cutoutQuality) {
-      imgToCrop = cacheEntry.bgRemovedImg;
+    const modelKey = config.cutoutQuality || 'medium';
+    const edgeShift = config.edgeShift || 0;
+    const cacheKey = `${modelKey}_${edgeShift}`;
+
+    if (cacheEntry.compositedImg && cacheEntry.compositeKey === cacheKey) {
+      imgToCrop = cacheEntry.compositedImg;
     } else {
       try {
-        const bgRemovedBlob = await removeBackground(originalFile, {
-          model: config.cutoutQuality || 'medium'
-        });
-        imgToCrop = await blobToImage(bgRemovedBlob);
-        cacheEntry.bgRemovedImg = imgToCrop;
-        cacheEntry.cutoutQuality = config.cutoutQuality || 'medium';
+        // Step A: get the raw mask from the AI model (single-channel grayscale)
+        let maskImg = cacheEntry.rawMaskImg;
+        if (!maskImg || cacheEntry.maskModelKey !== modelKey) {
+          const maskBlob = await removeBackground(originalFile, {
+            model: modelKey,
+            output: { type: 'mask', format: 'image/png' }
+          });
+          maskImg = await blobToImage(maskBlob);
+          cacheEntry.rawMaskImg = maskImg;
+          cacheEntry.maskModelKey = modelKey;
+        }
+
+        // Step B: extract grayscale alpha from mask image
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = maskImg.width;
+        maskCanvas.height = maskImg.height;
+        const mctx = maskCanvas.getContext('2d');
+        mctx.drawImage(maskImg, 0, 0);
+        const maskData = mctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+        let rawAlpha = new Uint8Array(maskCanvas.width * maskCanvas.height);
+        for (let i = 0; i < rawAlpha.length; i++) {
+          // The mask is grayscale: white=foreground. Use the R channel.
+          rawAlpha[i] = maskData[i * 4];
+        }
+
+        // Step C: refine mask — light blur to soften jagged edges, then levels to clean up
+        const w = maskCanvas.width;
+        const h = maskCanvas.height;
+        // Blur radius: 1px is enough to smooth jaggies without losing detail
+        let refined = boxBlurAlpha(rawAlpha, w, h, 1);
+        // Levels: edgeShift controls how aggressively we clip semi-transparent fringe
+        // blackPoint 10~50 range clips the faintest white halo
+        // gamma slightly > 1 sharpens the transition
+        const blackPoint = Math.min(80, 10 + edgeShift * 4);
+        const gamma = 1.0 + edgeShift * 0.05;
+        refined = applyAlphaLevels(refined, w, h, blackPoint, gamma);
+
+        // Step D: composite refined mask onto original image (RGB from original, alpha from mask)
+        // The mask and original may differ in size, so we scale the mask to match
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width = originalImg.width;
+        origCanvas.height = originalImg.height;
+        const octx = origCanvas.getContext('2d');
+        octx.drawImage(originalImg, 0, 0);
+        const origData = octx.getImageData(0, 0, origCanvas.width, origCanvas.height);
+
+        if (w === originalImg.width && h === originalImg.height) {
+          // Same size — direct apply
+          for (let i = 0; i < refined.length; i++) {
+            origData.data[i * 4 + 3] = refined[i];
+          }
+        } else {
+          // Different sizes — scale the mask via canvas
+          const scaledMaskCanvas = document.createElement('canvas');
+          scaledMaskCanvas.width = originalImg.width;
+          scaledMaskCanvas.height = originalImg.height;
+          const smctx = scaledMaskCanvas.getContext('2d');
+          // Draw the refined mask as an image
+          const refinedImgData = mctx.createImageData(w, h);
+          for (let i = 0; i < refined.length; i++) {
+            refinedImgData.data[i * 4] = refined[i];
+            refinedImgData.data[i * 4 + 1] = refined[i];
+            refinedImgData.data[i * 4 + 2] = refined[i];
+            refinedImgData.data[i * 4 + 3] = 255;
+          }
+          mctx.putImageData(refinedImgData, 0, 0);
+          smctx.drawImage(maskCanvas, 0, 0, originalImg.width, originalImg.height);
+          const scaledData = smctx.getImageData(0, 0, originalImg.width, originalImg.height).data;
+          for (let i = 0; i < origData.data.length / 4; i++) {
+            origData.data[i * 4 + 3] = scaledData[i * 4]; // R channel of scaled mask
+          }
+        }
+
+        octx.putImageData(origData, 0, 0);
+        imgToCrop = await blobToImage(await new Promise(r => origCanvas.toBlob(r, 'image/png')));
+        cacheEntry.compositedImg = imgToCrop;
+        cacheEntry.compositeKey = cacheKey;
       } catch (e) {
         console.warn("Background removal failed:", e);
       }
-    }
-    
-    if (cacheEntry.bgRemovedImg) {
-      imgToCrop = applyEdgeShift(cacheEntry.bgRemovedImg, config.edgeShift || 0);
     }
   }
 
