@@ -80,6 +80,15 @@ const colorDistance = (a, b) => {
 
 const luminance = (r, g, b) => r * 0.299 + g * 0.587 + b * 0.114;
 
+const parseHexColor = (color) => {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return null;
+  return [
+    parseInt(color.slice(1, 3), 16),
+    parseInt(color.slice(3, 5), 16),
+    parseInt(color.slice(5, 7), 16)
+  ];
+};
+
 // Edge-aware alpha and spill cleanup. Pixels with solid alpha are protected.
 const refineAlpha = (img, strength, originalImg = img) => {
   const cleanStrength = Math.max(0, Math.min(20, Number(strength) || 0));
@@ -114,12 +123,12 @@ const refineAlpha = (img, strength, originalImg = img) => {
   const pixelOffset = (x, y) => ((y * width + x) << 2);
   const alphaAt = (x, y) => src[pixelOffset(x, y) + 3];
 
-  const getEdgeStats = (x, y) => {
+  const getAlphaStats = (x, y, radius = 1) => {
     let minAlpha = 255;
     let maxAlpha = 0;
 
-    for (let yy = Math.max(0, y - 1); yy <= Math.min(height - 1, y + 1); yy++) {
-      for (let xx = Math.max(0, x - 1); xx <= Math.min(width - 1, x + 1); xx++) {
+    for (let yy = Math.max(0, y - radius); yy <= Math.min(height - 1, y + radius); yy++) {
+      for (let xx = Math.max(0, x - radius); xx <= Math.min(width - 1, x + radius); xx++) {
         const alpha = alphaAt(xx, yy);
         minAlpha = Math.min(minAlpha, alpha);
         maxAlpha = Math.max(maxAlpha, alpha);
@@ -133,7 +142,7 @@ const refineAlpha = (img, strength, originalImg = img) => {
     };
   };
 
-  const sampleColorByAlpha = (x, y, radius, preferred, fallback) => {
+  const sampleColorByAlpha = (x, y, radius, preferred, fallback, colorTest) => {
     const tests = fallback ? [preferred, fallback] : [preferred];
 
     for (const testAlpha of tests) {
@@ -150,10 +159,17 @@ const refineAlpha = (img, strength, originalImg = img) => {
             const targetOffset = pixelOffset(xx, yy);
             if (!testAlpha(src[targetOffset + 3])) continue;
 
+            const sampleColor = [
+              originalData[targetOffset],
+              originalData[targetOffset + 1],
+              originalData[targetOffset + 2]
+            ];
+            if (colorTest && !colorTest(sampleColor)) continue;
+
             const sampleWeight = 1 / (1 + Math.abs(xx - x) + Math.abs(yy - y));
-            red += originalData[targetOffset] * sampleWeight;
-            green += originalData[targetOffset + 1] * sampleWeight;
-            blue += originalData[targetOffset + 2] * sampleWeight;
+            red += sampleColor[0] * sampleWeight;
+            green += sampleColor[1] * sampleWeight;
+            blue += sampleColor[2] * sampleWeight;
             totalWeight += sampleWeight;
           }
         }
@@ -173,13 +189,92 @@ const refineAlpha = (img, strength, originalImg = img) => {
       const alpha = src[offset + 3];
       if (alpha === 0) continue;
 
-      const edgeStats = getEdgeStats(x, y);
-      const isEdge =
+      const edgeStats = getAlphaStats(x, y);
+      const extendedStats = alpha >= protectAlpha
+        ? getAlphaStats(x, y, Math.min(searchRadius + 2, 8))
+        : edgeStats;
+      const isAlphaEdge =
         edgeStats.contrast >= 12 &&
         edgeStats.minAlpha < protectAlpha &&
         alpha < protectAlpha;
 
       let nextAlpha = alpha;
+      let isEdge = isAlphaEdge;
+      let solidColor = null;
+      let backgroundColor = null;
+      let originalColor = null;
+
+      const isBrightBoundaryCandidate =
+        alpha >= protectAlpha &&
+        extendedStats.minAlpha <= Math.max(74, killAlpha + 16) &&
+        extendedStats.contrast >= 18;
+
+      if (isAlphaEdge || isBrightBoundaryCandidate) {
+        backgroundColor = sampleColorByAlpha(
+          x,
+          y,
+          searchRadius + 4,
+          sampleAlpha => sampleAlpha <= bgAlpha,
+          sampleAlpha => sampleAlpha <= Math.min(74, killAlpha + 18)
+        );
+
+        solidColor = sampleColorByAlpha(
+          x,
+          y,
+          searchRadius + 2,
+          sampleAlpha => sampleAlpha >= protectAlpha,
+          sampleAlpha => sampleAlpha >= 210,
+          sampleColor => {
+            if (!backgroundColor) return true;
+            return (
+              colorDistance(sampleColor, backgroundColor) > 34 ||
+              luminance(...backgroundColor) - luminance(...sampleColor) > 18
+            );
+          }
+        );
+
+        if (backgroundColor && solidColor) {
+          originalColor = [
+            originalData[offset],
+            originalData[offset + 1],
+            originalData[offset + 2]
+          ];
+
+          const bgLuma = luminance(...backgroundColor);
+          const solidLuma = luminance(...solidColor);
+          const currentLuma = luminance(...originalColor);
+          const distanceToBg = colorDistance(originalColor, backgroundColor);
+          const distanceToSolid = colorDistance(originalColor, solidColor);
+          const backgroundLike =
+            bgLuma > solidLuma + 22 &&
+            currentLuma > solidLuma + 34 &&
+            (distanceToBg < distanceToSolid + 28 || currentLuma > 188);
+
+          isEdge = isEdge || (isBrightBoundaryCandidate && backgroundLike);
+
+          if (isBrightBoundaryCandidate && backgroundLike) {
+            const bgBias = clamp((distanceToSolid - distanceToBg + 70) / 170, 0, 1);
+            const brightnessBias = clamp((currentLuma - solidLuma - 24) / 128, 0, 1);
+            const boundaryWeight = 1 - smoothstep(bgAlpha, protectAlpha, extendedStats.minAlpha);
+            const haloStrength =
+              strength01 *
+              (0.4 + 0.6 * bgBias) *
+              (0.45 + 0.55 * brightnessBias) *
+              (0.45 + 0.55 * boundaryWeight);
+
+            nextAlpha = Math.min(
+              nextAlpha,
+              Math.round(alpha * (1 - clamp(haloStrength * 0.9, 0, 0.9)))
+            );
+
+            if (cleanStrength >= 12 && bgBias > 0.72 && brightnessBias > 0.55) {
+              nextAlpha = Math.min(nextAlpha, Math.round(42 + 84 * (1 - strength01)));
+            }
+
+            data[offset + 3] = nextAlpha;
+          }
+        }
+      }
 
       if (isEdge || alpha <= killAlpha) {
         if (alpha <= killAlpha) {
@@ -204,28 +299,42 @@ const refineAlpha = (img, strength, originalImg = img) => {
 
       if (!isEdge || nextAlpha === 0) continue;
 
-      const solidColor = sampleColorByAlpha(
-        x,
-        y,
-        searchRadius,
-        sampleAlpha => sampleAlpha >= protectAlpha,
-        sampleAlpha => sampleAlpha >= 210
-      );
-      const backgroundColor = sampleColorByAlpha(
-        x,
-        y,
-        searchRadius + 2,
-        sampleAlpha => sampleAlpha <= bgAlpha,
-        sampleAlpha => sampleAlpha <= Math.min(28, killAlpha)
-      );
+      if (!backgroundColor) {
+        backgroundColor = sampleColorByAlpha(
+          x,
+          y,
+          searchRadius + 4,
+          sampleAlpha => sampleAlpha <= bgAlpha,
+          sampleAlpha => sampleAlpha <= Math.min(74, killAlpha + 18)
+        );
+      }
+
+      if (!solidColor) {
+        solidColor = sampleColorByAlpha(
+          x,
+          y,
+          searchRadius + 2,
+          sampleAlpha => sampleAlpha >= protectAlpha,
+          sampleAlpha => sampleAlpha >= 210,
+          sampleColor => {
+            if (!backgroundColor) return true;
+            return (
+              colorDistance(sampleColor, backgroundColor) > 34 ||
+              luminance(...backgroundColor) - luminance(...sampleColor) > 18
+            );
+          }
+        );
+      }
 
       if (!solidColor || !backgroundColor) continue;
 
-      const originalColor = [
-        originalData[offset],
-        originalData[offset + 1],
-        originalData[offset + 2]
-      ];
+      if (!originalColor) {
+        originalColor = [
+          originalData[offset],
+          originalData[offset + 1],
+          originalData[offset + 2]
+        ];
+      }
       const alpha01 = clamp(nextAlpha / 255, 0.08, 1);
       const edgeWeight = 1 - smoothstep(0.72, 0.99, alpha01);
       const contrastWeight = smoothstep(24, 110, colorDistance(backgroundColor, solidColor));
@@ -285,6 +394,111 @@ const refineAlpha = (img, strength, originalImg = img) => {
   return canvas;
 };
 
+const cleanCompositeHalo = (canvas, bgColor, strength) => {
+  const background = parseHexColor(bgColor);
+  const cleanStrength = Math.max(0, Math.min(20, Number(strength) || 0));
+  if (!background || cleanStrength <= 0) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const strength01 = cleanStrength / 20;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const src = new Uint8ClampedArray(data);
+  const bgLuma = luminance(...background);
+  const radius = Math.round(3 + cleanStrength * 0.35);
+
+  const pixelOffset = (x, y) => ((y * width + x) << 2);
+  const getColor = (offset) => [src[offset], src[offset + 1], src[offset + 2]];
+  const isBackground = (offset, tolerance = 4) => colorDistance(getColor(offset), background) <= tolerance;
+
+  const hasBackgroundNeighbor = (x, y) => {
+    for (let r = 1; r <= radius; r++) {
+      for (let yy = Math.max(0, y - r); yy <= Math.min(height - 1, y + r); yy++) {
+        for (let xx = Math.max(0, x - r); xx <= Math.min(width - 1, x + r); xx++) {
+          if (Math.abs(xx - x) !== r && Math.abs(yy - y) !== r) continue;
+          if (isBackground(pixelOffset(xx, yy), 6)) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const sampleInteriorColor = (x, y, currentLuma) => {
+    for (let r = 1; r <= radius + 4; r++) {
+      let totalWeight = 0;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+
+      for (let yy = Math.max(0, y - r); yy <= Math.min(height - 1, y + r); yy++) {
+        for (let xx = Math.max(0, x - r); xx <= Math.min(width - 1, x + r); xx++) {
+          if (Math.abs(xx - x) !== r && Math.abs(yy - y) !== r) continue;
+
+          const offset = pixelOffset(xx, yy);
+          const color = getColor(offset);
+          const sampleLuma = luminance(...color);
+          const sampleSpread = Math.max(...color) - Math.min(...color);
+
+          if (isBackground(offset, 10)) continue;
+          if (sampleLuma > currentLuma - 24 && sampleSpread < 38) continue;
+
+          const weight = 1 / (1 + Math.abs(xx - x) + Math.abs(yy - y));
+          red += color[0] * weight;
+          green += color[1] * weight;
+          blue += color[2] * weight;
+          totalWeight += weight;
+        }
+      }
+
+      if (totalWeight > 0) {
+        return [red / totalWeight, green / totalWeight, blue / totalWeight];
+      }
+    }
+
+    return null;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = pixelOffset(x, y);
+      if (isBackground(offset, 4)) continue;
+      if (!hasBackgroundNeighbor(x, y)) continue;
+
+      const color = getColor(offset);
+      const currentLuma = luminance(...color);
+      const spread = Math.max(...color) - Math.min(...color);
+      const whiteDistance = colorDistance(color, [255, 255, 255]);
+      const fogLike =
+        (spread < 42 && currentLuma > bgLuma + 26) ||
+        (currentLuma > 196 && whiteDistance < 118);
+
+      if (!fogLike) continue;
+
+      const interiorColor = sampleInteriorColor(x, y, currentLuma);
+      const bgDistance = colorDistance(color, background);
+      const whiteBias = clamp((118 - whiteDistance) / 118, 0, 1);
+      const bgGap = clamp((bgDistance - 14) / 110, 0, 1);
+      const amount = clamp(strength01 * (0.32 + 0.46 * whiteBias + 0.34 * bgGap), 0, 0.86);
+      if (amount <= 0.04) continue;
+
+      const target = interiorColor && luminance(...interiorColor) < currentLuma - 20
+        ? interiorColor
+        : background;
+      const targetAmount = target === background ? amount * 0.95 : amount;
+
+      for (let channel = 0; channel < 3; channel++) {
+        data[offset + channel] = clamp(Math.round(
+          color[channel] * (1 - targetAmount) + target[channel] * targetAmount
+        ));
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+};
+
 const cropAndProcess = async (originalImg, originalFile, config) => {
   await loadModels();
 
@@ -335,6 +549,10 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
     }
 
     ctx.drawImage(imgToCrop, 0, 0);
+
+    if (config.bgColor !== 'keep' && config.bgColor !== 'transparent') {
+      cleanCompositeHalo(canvas, config.bgColor, config.edgeShift || 0);
+    }
 
     if (config.watermark) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
@@ -438,6 +656,10 @@ const cropAndProcess = async (originalImg, originalFile, config) => {
   ctx.translate(-cropCenterX, -cropCenterY);
   ctx.drawImage(imgToCrop, 0, 0);
   ctx.restore();
+
+  if (config.bgColor !== 'keep' && config.bgColor !== 'transparent') {
+    cleanCompositeHalo(canvas, config.bgColor, config.edgeShift || 0);
+  }
 
   if (config.watermark) {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
